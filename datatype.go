@@ -36,3 +36,17 @@ func mbUint32(r io.Reader) (uint32, error) {
 	}
 	return uint32(u), nil
 }
+
+func readString(r io.Reader) ([]byte, error) {
+	result := make([]byte, 0, 8)
+	for {
+		b, err := readByte(r)
+		if err != nil {
+			return nil, err
+		}
+		if b == 0 {
+			return result, nil
+		}
+		result = append(result, b)
+	}
+}

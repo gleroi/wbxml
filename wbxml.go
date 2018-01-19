@@ -4,18 +4,47 @@ package wbxml
 import (
 	"fmt"
 	"io"
+	"unicode/utf8"
 )
 
 type Decoder struct {
-	r     io.ByteReader
+	r     io.Reader
 	tags  CodeSpace
 	attrs CodeSpace
 
-	Header Header
+	tokChan chan Token
+	err     error
+	Header  Header
+}
+
+func NewDecoder(r io.Reader, tags CodeSpace) *Decoder {
+	d := &Decoder{
+		r:       r,
+		tags:    tags,
+		tokChan: make(chan Token),
+	}
+
+	go d.run()
+	return d
 }
 
 // CodeSpace represents the mapping of a tag or attribute to its code.
-type CodeSpace map[byte]CodePage
+type CodeSpace struct {
+	pages map[byte]CodePage
+	page  byte
+}
+
+func (space CodeSpace) Name(id byte) string {
+	page, ok := space.pages[space.page]
+	if !ok {
+		panic(fmt.Errorf("Unknown page %d", space.page))
+	}
+	name, ok := page[id]
+	if !ok {
+		panic(fmt.Errorf("Unknown code %d in page %d", id, space.page))
+	}
+	return name
+}
 
 // CodePage represents a mapping between code and tag/attribute.
 type CodePage map[byte]string
@@ -24,12 +53,33 @@ type CodePage map[byte]string
 // StartElement, EndElement, CharData, Comment, ProcInst, or Directive.
 type Token interface{}
 
+type StartElement struct {
+	Name string
+	Attr []Attr
+}
+
+type Attr struct {
+	Name  string
+	Value string
+}
+
+type EndElement struct {
+	Name string
+}
+
+type ProcInst struct {
+	Target string
+	Inst   []byte
+}
+
+type CharData []byte
+
 // Header represents the header of a wbxml document.
 type Header struct {
 	Version     uint8
 	PublicID    uint32
 	Charset     uint32
-	StringTable []byte
+	StringTable [][]byte
 }
 
 // Token returns the next token in the input stream, or nil and io.EOF at the end.
@@ -70,7 +120,11 @@ type Header struct {
 //   length		= mb_u_int32			// integer length.
 //   zero		= u_int8			// containing the value zero (0).
 func (d *Decoder) Token() (Token, error) {
-	return nil, fmt.Errorf("not implemented")
+	tok := <-d.tokChan
+	if tok == nil {
+		return tok, d.err
+	}
+	return tok, nil
 }
 
 const (
@@ -123,10 +177,166 @@ func ReadHeader(r io.Reader) (Header, error) {
 	if err != nil {
 		return h, err
 	}
-	h.StringTable = make([]byte, length)
-	_, err = r.Read(h.StringTable)
+	buf := make([]byte, length)
+	_, err = r.Read(buf)
 	if err != nil {
 		return h, err
 	}
+
+	h.StringTable = make([][]byte, 0, 8)
+	start := 0
+	for end, b := range buf {
+		if b == 0 {
+			h.StringTable = append(h.StringTable, buf[start:end])
+			start = end + 1
+		}
+	}
 	return h, nil
+}
+
+func (d *Decoder) GetString(i uint32) ([]byte, error) {
+	if i >= uint32(len(d.Header.StringTable)) {
+		return nil, fmt.Errorf("%d is not a valid string reference (max %d)", i, len(d.Header.StringTable))
+	}
+	return d.Header.StringTable[i], nil
+}
+
+func (d *Decoder) run() {
+	defer func() {
+		if r := recover(); r != nil {
+			if err, ok := r.(error); ok {
+				d.err = err
+			}
+			close(d.tokChan)
+		}
+	}()
+
+	d.body()
+	close(d.tokChan)
+}
+
+func (d *Decoder) body() {
+	var b byte
+	var err error
+
+	for {
+		b, err = readByte(d.r)
+		panicErr(err)
+		if b != pi {
+			break
+		}
+		d.piStar()
+	}
+
+	d.element(b)
+
+	for {
+		b, err = readByte(d.r)
+		panicErr(err)
+		if b != pi {
+			break
+		}
+		d.piStar()
+	}
+}
+
+func (d *Decoder) piStar() {
+}
+
+func (d *Decoder) element(b byte) {
+	switch b {
+	case switchPage:
+		panic(fmt.Errorf("unexpected token switchPage"))
+	case literal:
+		panic(fmt.Errorf("unexpected token literal"))
+	default:
+		tag := Tag(b)
+		tagName := d.tags.Name(tag.ID())
+		tok := StartElement{Name: tagName}
+		if tag.Attr() {
+			d.attributes(&tok)
+		}
+		d.tokChan <- tok
+		if tag.Content() {
+			d.content()
+		}
+		d.tokChan <- EndElement{Name: tagName}
+	}
+}
+
+func (d *Decoder) attributes(elt *StartElement) {
+
+}
+
+func (d *Decoder) content() {
+	// content() accumulate adjacent CharData in a unique instance until END or ELEMENT is
+	// encountered
+
+	var cdata CharData
+	for {
+		b, err := readByte(d.r)
+		panicErr(err)
+
+		switch b {
+		case strI, strT, entity:
+			d.charData(&cdata, b)
+		case end:
+			d.sendCharData(&cdata)
+			return
+		default:
+			d.sendCharData(&cdata)
+			d.element(b)
+		}
+	}
+}
+
+func (d *Decoder) sendCharData(cdata *CharData) {
+	if *cdata != nil {
+		d.tokChan <- *cdata
+		*cdata = make([]byte, 0)
+	}
+}
+
+func (d *Decoder) charData(cdata *CharData, b byte) {
+	switch b {
+	case strI:
+		str, err := readString(d.r)
+		panicErr(err)
+		*cdata = append(*cdata, str...)
+	case strT:
+		index, err := mbUint32(d.r)
+		panicErr(err)
+		str, err := d.GetString(index)
+		*cdata = append(*cdata, str...)
+	case entity:
+		entcode, err := mbUint32(d.r)
+		panicErr(err)
+		var buf [4]byte
+		rlen := utf8.RuneLen(rune(entcode))
+		utf8.EncodeRune(buf[:rlen], rune(entcode))
+		panicErr(err)
+		*cdata = append(*cdata, buf[:rlen]...)
+	default:
+		panic(fmt.Errorf("Unknown char data tag %d", b))
+	}
+}
+
+func panicErr(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+
+type Tag byte
+
+func (t Tag) Attr() bool {
+	return t&0x80 == 0x80
+}
+
+func (t Tag) Content() bool {
+	return t&0x40 == 0x40
+}
+
+func (t Tag) ID() byte {
+	return byte(t & 0x03F)
 }
