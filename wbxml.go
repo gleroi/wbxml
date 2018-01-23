@@ -85,6 +85,10 @@ type ProcInst struct {
 
 type CharData []byte
 
+type Opaque []byte
+
+type Entity uint32
+
 // Header represents the header of a wbxml document.
 type Header struct {
 	Version     uint8

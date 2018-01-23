@@ -3,6 +3,7 @@ package wbxml
 import (
 	"bytes"
 	"encoding/hex"
+	"io"
 	"testing"
 )
 
@@ -117,7 +118,7 @@ func TestXMLPrettyPrint(t *testing.T) {
 		w := bytes.NewBuffer(nil)
 
 		err = XML(w, d)
-		if err != nil {
+		if err != nil && err != io.EOF {
 			t.Errorf("case %d: unexpected error: %s", testID, err)
 		}
 		t.Logf("case %d: xml:\n  %s", testID, w.String())

@@ -161,7 +161,7 @@ func (d *Decoder) element(b byte) {
 		d.panicErr(err)
 		page = index
 	case literal:
-		panic(fmt.Errorf("unexpected token literal"))
+		panic(fmt.Errorf("literal tag not implemented"))
 	default:
 		tag := Tag(b)
 		tagName := d.tagName(page, tag.ID())
@@ -247,8 +247,19 @@ func (d *Decoder) content() {
 		d.panicErr(err)
 
 		switch b {
-		case strI, strT, entity, opaque:
+		case strI, strT, entity:
 			d.charData(&cdata, b)
+		case opaque:
+			d.sendCharData(&cdata)
+			length, err := mbUint32(d)
+			d.panicErr(err)
+			data, err := readSlice(d, length)
+			d.panicErr(err)
+			d.tokChan <- Opaque(data)
+		case ext0, ext1, ext2,
+			extI0, extI1, extI2,
+			extT0, extT1, extT2:
+			panic(fmt.Errorf("extension token unimplemented (token %d)", b))
 		case end:
 			d.sendCharData(&cdata)
 			return
@@ -284,13 +295,15 @@ func (d *Decoder) charData(cdata *CharData, b byte) {
 	case entity:
 		entcode, err := mbUint32(d)
 		d.panicErr(err)
-		var buf [4]byte
-		rlen := utf8.RuneLen(rune(entcode))
-		utf8.EncodeRune(buf[:rlen], rune(entcode))
-		d.panicErr(err)
-		*cdata = append(*cdata, buf[:rlen]...)
-	case opaque:
-		d.panicErr(fmt.Errorf("unimplemented opaque"))
+		if len(*cdata) > 0 {
+			var buf [4]byte
+			rlen := utf8.RuneLen(rune(entcode))
+			utf8.EncodeRune(buf[:rlen], rune(entcode))
+			d.panicErr(err)
+			*cdata = append(*cdata, buf[:rlen]...)
+		} else {
+			d.tokChan <- Entity(entcode)
+		}
 	default:
 		d.panicErr(fmt.Errorf("Unknown char data tag %d", b))
 	}

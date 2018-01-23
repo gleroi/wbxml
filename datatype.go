@@ -50,3 +50,16 @@ func readString(d *Decoder) ([]byte, error) {
 		result = append(result, b)
 	}
 }
+
+func readSlice(d *Decoder, length uint32) ([]byte, error) {
+	result := make([]byte, length)
+	n, err := d.r.Read(result)
+	if err != nil {
+		return nil, err
+	}
+	d.offset += n
+	if uint32(n) != length {
+		return result[:n], fmt.Errorf("expected %d bytes, got %d", length, n)
+	}
+	return result, nil
+}
