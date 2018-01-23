@@ -2,20 +2,20 @@ package wbxml
 
 import (
 	"fmt"
-	"io"
 )
 
-func readByte(r io.Reader) (byte, error) {
+func readByte(d *Decoder) (byte, error) {
 	var b [1]byte
-	_, err := r.Read(b[:])
+	n, err := d.r.Read(b[:])
+	d.offset += n
 	return b[0], err
 }
 
-func mbUint(r io.Reader, max int) (uint64, error) {
+func mbUint(d *Decoder, max int) (uint64, error) {
 	var result uint64
 
 	for i := 0; i < max; i++ {
-		b, err := readByte(r)
+		b, err := readByte(d)
 		if err != nil {
 			return 0, err
 		}
@@ -29,18 +29,18 @@ func mbUint(r io.Reader, max int) (uint64, error) {
 	return 0, fmt.Errorf("multi-byte integer is longer than expected %d bytes", max)
 }
 
-func mbUint32(r io.Reader) (uint32, error) {
-	u, err := mbUint(r, 4)
+func mbUint32(d *Decoder) (uint32, error) {
+	u, err := mbUint(d, 4)
 	if err != nil {
 		return 0, err
 	}
 	return uint32(u), nil
 }
 
-func readString(r io.Reader) ([]byte, error) {
+func readString(d *Decoder) ([]byte, error) {
 	result := make([]byte, 0, 8)
 	for {
-		b, err := readByte(r)
+		b, err := readByte(d)
 		if err != nil {
 			return nil, err
 		}

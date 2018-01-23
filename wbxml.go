@@ -1,26 +1,60 @@
 // Package wbxml implements a simple WBXML parser, based on encoding/xml API.
+//
+// Grammar is:
+//   start		= version publicid charset strtbl body
+//   strtbl		= length *byte
+//   body		= *pi element *pi
+//   element	= stag [ 1*attribute END ] [ *content END ]
+//
+//   content	= element | string | extension | entity | pi | opaque
+//
+//   stag		= TAG | ( LITERAL index )
+//   attribute	= attrStart *attrValue
+//   attrStart	= ATTRSTART | ( LITERAL index )
+//   attrValue	= ATTRVALUE | string | extension | entity
+//
+//   extension	= ( EXT_I termstr ) | ( EXT_T index ) | EXT
+//
+//   string		= inline | tableref
+//   inline		= STR_I termstr
+//   tableref	= STR_T index
+//
+//   entity		= ENTITY entcode
+//   entcode	= mb_u_int32			// UCS-4 character code
+//
+//   pi			= PI attrStart *attrValue END
+//
+//   opaque		= OPAQUE length *byte
+//
+//   version	= u_int8 containing WBXML version number
+//   publicid	= mb_u_int32 | ( zero index )
+//   charset	= mb_u_int32
+//   termstr	= charset-dependent string with termination
+//   index		= mb_u_int32			// integer index into string table.
+//   length		= mb_u_int32			// integer length.
+//   zero		= u_int8			// containing the value zero (0).
 package wbxml
 
 import (
 	"fmt"
+	"io"
 )
 
 // CodeSpace represents the mapping of a tag or attribute to its code.
 type CodeSpace struct {
 	pages map[byte]CodePage
-	page  byte
 }
 
-func (space CodeSpace) Name(id byte) string {
-	page, ok := space.pages[space.page]
+func (space CodeSpace) Name(pageId byte, id byte) (string, error) {
+	page, ok := space.pages[pageId]
 	if !ok {
-		panic(fmt.Errorf("Unknown page %d", space.page))
+		return "", fmt.Errorf("Unknown page %d", pageId)
 	}
 	name, ok := page[id]
 	if !ok {
-		panic(fmt.Errorf("Unknown code %d in page %d", id, space.page))
+		return "", fmt.Errorf("Unknown code %d in page %d", id, pageId)
 	}
-	return name
+	return name, nil
 }
 
 // CodePage represents a mapping between code and tag/attribute.
@@ -82,9 +116,12 @@ const (
 	literalAc  = 0xC4 // 	Unknown tag, with content and attributes.
 )
 
-func panicErr(err error) {
+func (d *Decoder) panicErr(err error) {
 	if err != nil {
-		panic(err)
+		if err == io.EOF {
+			panic(err)
+		}
+		panic(fmt.Errorf("position %d: %s", d.offset, err))
 	}
 }
 

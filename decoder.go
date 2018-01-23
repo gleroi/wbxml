@@ -11,6 +11,7 @@ type Decoder struct {
 	tags  CodeSpace
 	attrs CodeSpace
 
+	offset  int
 	tokChan chan Token
 	err     error
 	Header  Header
@@ -29,42 +30,6 @@ func NewDecoder(r io.Reader, tags CodeSpace, attrs CodeSpace) *Decoder {
 }
 
 // Token returns the next token in the input stream, or nil and io.EOF at the end.
-// The input stream is limited to the body part, the header is read on initialization or
-// by yourself using ReadHeader.
-//
-// Grammar is:
-//   start		= version publicid charset strtbl body
-//   strtbl		= length *byte
-//   body		= *pi element *pi
-//   element	= stag [ 1*attribute END ] [ *content END ]
-//
-//   content	= element | string | extension | entity | pi | opaque
-//
-//   stag		= TAG | ( LITERAL index )
-//   attribute	= attrStart *attrValue
-//   attrStart	= ATTRSTART | ( LITERAL index )
-//   attrValue	= ATTRVALUE | string | extension | entity
-//
-//   extension	= ( EXT_I termstr ) | ( EXT_T index ) | EXT
-//
-//   string		= inline | tableref
-//   inline		= STR_I termstr
-//   tableref	= STR_T index
-//
-//   entity		= ENTITY entcode
-//   entcode	= mb_u_int32			// UCS-4 character code
-//
-//   pi			= PI attrStart *attrValue END
-//
-//   opaque		= OPAQUE length *byte
-//
-//   version	= u_int8 containing WBXML version number
-//   publicid	= mb_u_int32 | ( zero index )
-//   charset	= mb_u_int32
-//   termstr	= charset-dependent string with termination
-//   index		= mb_u_int32			// integer index into string table.
-//   length		= mb_u_int32			// integer length.
-//   zero		= u_int8			// containing the value zero (0).
 func (d *Decoder) Token() (Token, error) {
 	tok := <-d.tokChan
 	if tok == nil {
@@ -85,6 +50,22 @@ func (d *Decoder) GetString(i uint32) ([]byte, error) {
 	return nil, fmt.Errorf("StringTable: no NULL terminator found")
 }
 
+func (d *Decoder) tagName(page, code byte) string {
+	name, err := d.tags.Name(page, code)
+	if err != nil {
+		d.panicErr(err)
+	}
+	return name
+}
+
+func (d *Decoder) attrName(page, code byte) string {
+	name, err := d.attrs.Name(page, code)
+	if err != nil {
+		d.panicErr(err)
+	}
+	return name
+}
+
 func (d *Decoder) run() {
 	defer func() {
 		if r := recover(); r != nil {
@@ -100,7 +81,7 @@ func (d *Decoder) run() {
 	}()
 
 	h, err := d.readHeader()
-	panicErr(err)
+	d.panicErr(err)
 	d.Header = h
 	d.body()
 	close(d.tokChan)
@@ -111,33 +92,34 @@ func (d *Decoder) readHeader() (Header, error) {
 	var h Header
 	var err error
 
-	h.Version, err = readByte(d.r)
+	h.Version, err = readByte(d)
 	if err != nil {
 		return h, err
 	}
 
-	h.PublicID, err = mbUint32(d.r)
+	h.PublicID, err = mbUint32(d)
 	if err != nil {
 		return h, err
 	}
 	if h.PublicID == 0 {
-		h.PublicID, err = mbUint32(d.r)
+		h.PublicID, err = mbUint32(d)
 	}
 
-	h.Charset, err = mbUint32(d.r)
+	h.Charset, err = mbUint32(d)
 	if err != nil {
 		return h, err
 	}
 
-	length, err := mbUint32(d.r)
+	length, err := mbUint32(d)
 	if err != nil {
 		return h, err
 	}
 	buf := make([]byte, length)
-	_, err = d.r.Read(buf)
+	n, err := d.r.Read(buf)
 	if err != nil {
 		return h, err
 	}
+	d.offset += n
 	h.StringTable = buf
 	return h, nil
 }
@@ -147,8 +129,8 @@ func (d *Decoder) body() {
 	var err error
 
 	for {
-		b, err = readByte(d.r)
-		panicErr(err)
+		b, err = readByte(d)
+		d.panicErr(err)
 		if b != pi {
 			break
 		}
@@ -158,8 +140,8 @@ func (d *Decoder) body() {
 	d.element(b)
 
 	for {
-		b, err = readByte(d.r)
-		panicErr(err)
+		b, err = readByte(d)
+		d.panicErr(err)
 		if b != pi {
 			break
 		}
@@ -171,14 +153,18 @@ func (d *Decoder) piStar() {
 }
 
 func (d *Decoder) element(b byte) {
+	var page byte
+
 	switch b {
 	case switchPage:
-		panic(fmt.Errorf("unexpected token switchPage"))
+		index, err := readByte(d)
+		d.panicErr(err)
+		page = index
 	case literal:
 		panic(fmt.Errorf("unexpected token literal"))
 	default:
 		tag := Tag(b)
-		tagName := d.tags.Name(tag.ID())
+		tagName := d.tagName(page, tag.ID())
 		tok := StartElement{Name: tagName}
 		if tag.Attr() {
 			d.attributes(&tok)
@@ -192,19 +178,24 @@ func (d *Decoder) element(b byte) {
 }
 
 func (d *Decoder) attributes(elt *StartElement) {
-	b, err := readByte(d.r)
-	panicErr(err)
+	var page byte
+	b, err := readByte(d)
+	d.panicErr(err)
 
 	for {
 		switch b {
+		case switchPage:
+			index, err := readByte(d)
+			d.panicErr(err)
+			page = index
 		case literal:
 			var attr Attr
-			index, err := mbUint32(d.r)
-			panicErr(err)
+			index, err := mbUint32(d)
+			d.panicErr(err)
 			name, err := d.GetString(index)
-			panicErr(err)
+			d.panicErr(err)
 			attr.Name = string(name)
-			attr.Value, b = d.readAttrValue()
+			attr.Value, b = d.readAttrValue(page)
 			elt.Attr = append(elt.Attr, attr)
 		case end:
 			return
@@ -213,19 +204,19 @@ func (d *Decoder) attributes(elt *StartElement) {
 				panic(fmt.Errorf("unexpected attribute value"))
 			}
 			var attr Attr
-			attr.Name = d.attrs.Name(b)
-			attr.Value, b = d.readAttrValue()
+			attr.Name = d.attrName(page, b)
+			attr.Value, b = d.readAttrValue(page)
 			elt.Attr = append(elt.Attr, attr)
 		}
 	}
 }
 
-func (d *Decoder) readAttrValue() (string, byte) {
+func (d *Decoder) readAttrValue(page byte) (string, byte) {
 
 	var cdata CharData
 	for {
-		b, err := readByte(d.r)
-		panicErr(err)
+		b, err := readByte(d)
+		d.panicErr(err)
 
 		switch b {
 		case strI, strT, entity:
@@ -241,7 +232,7 @@ func (d *Decoder) readAttrValue() (string, byte) {
 				return string(cdata), b
 				//panic(fmt.Errorf("unexpected attribute tag name %d", b))
 			}
-			cdata = append(cdata, []byte(d.attrs.Name(b))...)
+			cdata = append(cdata, []byte(d.attrName(page, b))...)
 		}
 	}
 }
@@ -252,11 +243,11 @@ func (d *Decoder) content() {
 
 	var cdata CharData
 	for {
-		b, err := readByte(d.r)
-		panicErr(err)
+		b, err := readByte(d)
+		d.panicErr(err)
 
 		switch b {
-		case strI, strT, entity:
+		case strI, strT, entity, opaque:
 			d.charData(&cdata, b)
 		case end:
 			d.sendCharData(&cdata)
@@ -281,24 +272,26 @@ func (d *Decoder) charData(cdata *CharData, b byte) {
 	}
 	switch b {
 	case strI:
-		str, err := readString(d.r)
-		panicErr(err)
+		str, err := readString(d)
+		d.panicErr(err)
 		*cdata = append(*cdata, str...)
 	case strT:
-		index, err := mbUint32(d.r)
-		panicErr(err)
+		index, err := mbUint32(d)
+		d.panicErr(err)
 		str, err := d.GetString(index)
-		panicErr(err)
+		d.panicErr(err)
 		*cdata = append(*cdata, str...)
 	case entity:
-		entcode, err := mbUint32(d.r)
-		panicErr(err)
+		entcode, err := mbUint32(d)
+		d.panicErr(err)
 		var buf [4]byte
 		rlen := utf8.RuneLen(rune(entcode))
 		utf8.EncodeRune(buf[:rlen], rune(entcode))
-		panicErr(err)
+		d.panicErr(err)
 		*cdata = append(*cdata, buf[:rlen]...)
+	case opaque:
+		d.panicErr(fmt.Errorf("unimplemented opaque"))
 	default:
-		panic(fmt.Errorf("Unknown char data tag %d", b))
+		d.panicErr(fmt.Errorf("Unknown char data tag %d", b))
 	}
 }

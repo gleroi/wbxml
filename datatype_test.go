@@ -15,7 +15,7 @@ func TestDecodeMultibyteInteger(t *testing.T) {
 	}
 
 	for testID, test := range tests {
-		result, err := mbUint(bytes.NewReader(test.input), 8)
+		result, err := mbUint(&Decoder{r: bytes.NewReader(test.input)}, 8)
 
 		if err != nil {
 			t.Errorf("case %d: unexpected error: %s", testID, err)
