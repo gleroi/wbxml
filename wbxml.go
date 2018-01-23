@@ -40,19 +40,21 @@ import (
 	"io"
 )
 
-// CodeSpace represents the mapping of a tag or attribute to its code.
+// CodeSpace represents the mapping of a tag or attribute to its code, organized in pages
+// of overlapping code to tag mapping.
 type CodeSpace struct {
 	pages map[byte]CodePage
 }
 
-func (space CodeSpace) Name(pageId byte, id byte) (string, error) {
-	page, ok := space.pages[pageId]
+// Name return the name of tag encoded by (pageID, code).
+func (space CodeSpace) Name(pageID byte, code byte) (string, error) {
+	page, ok := space.pages[pageID]
 	if !ok {
-		return "", fmt.Errorf("Unknown page %d", pageId)
+		return "", fmt.Errorf("Unknown page %d", pageID)
 	}
-	name, ok := page[id]
+	name, ok := page[code]
 	if !ok {
-		return "", fmt.Errorf("Unknown code %d in page %d", id, pageId)
+		return "", fmt.Errorf("Unknown code %d in page %d", code, pageID)
 	}
 	return name, nil
 }
@@ -61,32 +63,40 @@ func (space CodeSpace) Name(pageId byte, id byte) (string, error) {
 type CodePage map[byte]string
 
 // Token is an interface holding one of the token types:
-// StartElement, EndElement, CharData, Comment, ProcInst, or Directive.
+// StartElement, EndElement, CharData, Entity, Opaque, ProcInst.
 type Token interface{}
 
+// StartElement represent the start tag of an WBXML element.
 type StartElement struct {
 	Name string
 	Attr []Attr
 }
 
+// Attr represents an attribute of WBXML element.
 type Attr struct {
 	Name  string
 	Value string
 }
 
+// EndElement represents the end tag of an WBXML element.
 type EndElement struct {
 	Name string
 }
 
+// ProcInst represents a processor instruction (PI) in a WBXML document.
 type ProcInst struct {
 	Target string
 	Inst   []byte
 }
 
+// CharData represents multiple of adjacent string (inline or tableref) and entity.
 type CharData []byte
 
+// Opaque represents an Opaque string of data.
 type Opaque []byte
 
+// Entity represents a WBXML entity, used only when alone, else it is concatenated to the previous
+// CharData.
 type Entity uint32
 
 // Header represents the header of a wbxml document.
@@ -98,26 +108,26 @@ type Header struct {
 }
 
 const (
-	switchPage = 0x0  // 	Change the code page for the current token state. Followed by a single u_int8 indicating the new code page number.
-	end        = 0x1  // 	Indicates the end of an attribute list or the end of an element.
-	entity     = 0x2  // 	A character entity. Followed by a mb_u_int32 encoding the character entity number.
-	strI       = 0x3  // 	Inline string. Followed by a termstr.
-	literal    = 0x4  // 	An unknown tag or attribute name. Followed by an mb_u_int32 that encodes an offset into the string table.
-	extI0      = 0x40 // 	Inline string document-type-specific extension token. Token is followed by a termstr.
-	extI1      = 0x41 // 	Inline string document-type-specific extension token. Token is followed by a termstr.
-	extI2      = 0x42 // 	Inline string document-type-specific extension token. Token is followed by a termstr.
-	pi         = 0x43 // 	Processing instruction.
-	literalC   = 0x44 // 	Unknown tag, with content.
-	extT0      = 0x80 // 	Inline integer document-type-specific extension token. Token is followed by a mb_uint_32.
-	extT1      = 0x81 // 	Inline integer document-type-specific extension token. Token is followed by a mb_uint_32.
-	extT2      = 0x82 // 	Inline integer document-type-specific extension token. Token is followed by a mb_uint_32.
-	strT       = 0x83 // 	String table reference. Followed by a mb_u_int32 encoding a byte offset from the beginning of the string table.
-	literalA   = 0x84 // 	Unknown tag, with attributes.
-	ext0       = 0xC0 // 	Single-byte document-type-specific extension token.
-	ext1       = 0xC1 // 	Single-byte document-type-specific extension token.
-	ext2       = 0xC2 // 	Single-byte document-type-specific extension token.
-	opaque     = 0xC3 // 	Opaque document-type-specific data.
-	literalAc  = 0xC4 // 	Unknown tag, with content and attributes.
+	gloSwitchPage = 0x0  // 	Change the code page for the current token state. Followed by a single u_int8 indicating the new code page number.
+	gloEnd        = 0x1  // 	Indicates the end of an attribute list or the end of an element.
+	gloEntity     = 0x2  // 	A character entity. Followed by a mb_u_int32 encoding the character entity number.
+	gloStrI       = 0x3  // 	Inline string. Followed by a termstr.
+	gloLiteral    = 0x4  // 	An unknown tag or attribute name. Followed by an mb_u_int32 that encodes an offset into the string table.
+	gloExtI0      = 0x40 // 	Inline string document-type-specific extension token. Token is followed by a termstr.
+	gloExtI1      = 0x41 // 	Inline string document-type-specific extension token. Token is followed by a termstr.
+	gloExtI2      = 0x42 // 	Inline string document-type-specific extension token. Token is followed by a termstr.
+	gloPi         = 0x43 // 	Processing instruction.
+	gloLiteralC   = 0x44 // 	Unknown tag, with content.
+	gloExtT0      = 0x80 // 	Inline integer document-type-specific extension token. Token is followed by a mb_uint_32.
+	gloExtT1      = 0x81 // 	Inline integer document-type-specific extension token. Token is followed by a mb_uint_32.
+	gloExtT2      = 0x82 // 	Inline integer document-type-specific extension token. Token is followed by a mb_uint_32.
+	gloStrT       = 0x83 // 	String table reference. Followed by a mb_u_int32 encoding a byte offset from the beginning of the string table.
+	gloLiteralA   = 0x84 // 	Unknown tag, with attributes.
+	gloExt0       = 0xC0 // 	Single-byte document-type-specific extension token.
+	gloExt1       = 0xC1 // 	Single-byte document-type-specific extension token.
+	gloExt2       = 0xC2 // 	Single-byte document-type-specific extension token.
+	gloOpaque     = 0xC3 // 	Opaque document-type-specific data.
+	gloLiteralAC  = 0xC4 // 	Unknown tag, with content and attributes.
 )
 
 func (d *Decoder) panicErr(err error) {
@@ -129,6 +139,7 @@ func (d *Decoder) panicErr(err error) {
 	}
 }
 
+// Tag represents a non global tag in a WBXML document.
 type Tag byte
 
 func (t Tag) Attr() bool {

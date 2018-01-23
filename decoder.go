@@ -131,7 +131,7 @@ func (d *Decoder) body() {
 	for {
 		b, err = readByte(d)
 		d.panicErr(err)
-		if b != pi {
+		if b != gloPi {
 			break
 		}
 		d.piStar()
@@ -142,7 +142,7 @@ func (d *Decoder) body() {
 	for {
 		b, err = readByte(d)
 		d.panicErr(err)
-		if b != pi {
+		if b != gloPi {
 			break
 		}
 		d.piStar()
@@ -156,11 +156,11 @@ func (d *Decoder) element(b byte) {
 	var page byte
 
 	switch b {
-	case switchPage:
+	case gloSwitchPage:
 		index, err := readByte(d)
 		d.panicErr(err)
 		page = index
-	case literal:
+	case gloLiteral, gloLiteralA, gloLiteralC, gloLiteralAC:
 		panic(fmt.Errorf("literal tag not implemented"))
 	default:
 		tag := Tag(b)
@@ -184,11 +184,11 @@ func (d *Decoder) attributes(elt *StartElement) {
 
 	for {
 		switch b {
-		case switchPage:
+		case gloSwitchPage:
 			index, err := readByte(d)
 			d.panicErr(err)
 			page = index
-		case literal:
+		case gloLiteral:
 			var attr Attr
 			index, err := mbUint32(d)
 			d.panicErr(err)
@@ -197,7 +197,7 @@ func (d *Decoder) attributes(elt *StartElement) {
 			attr.Name = string(name)
 			attr.Value, b = d.readAttrValue(page)
 			elt.Attr = append(elt.Attr, attr)
-		case end:
+		case gloEnd:
 			return
 		default:
 			if b >= 128 {
@@ -219,13 +219,13 @@ func (d *Decoder) readAttrValue(page byte) (string, byte) {
 		d.panicErr(err)
 
 		switch b {
-		case strI, strT, entity:
+		case gloStrI, gloStrT, gloEntity:
 			d.charData(&cdata, b)
-		case ext0, ext1, ext2,
-			extI0, extI1, extI2,
-			extT0, extT1, extT2:
+		case gloExt0, gloExt1, gloExt2,
+			gloExtI0, gloExtI1, gloExtI2,
+			gloExtT0, gloExtT1, gloExtT2:
 			panic(fmt.Errorf("extension token unimplemented (token %d)", b))
-		case end:
+		case gloEnd:
 			return string(cdata), b
 		default:
 			if b < 128 {
@@ -247,20 +247,20 @@ func (d *Decoder) content() {
 		d.panicErr(err)
 
 		switch b {
-		case strI, strT, entity:
+		case gloStrI, gloStrT, gloEntity:
 			d.charData(&cdata, b)
-		case opaque:
+		case gloOpaque:
 			d.sendCharData(&cdata)
 			length, err := mbUint32(d)
 			d.panicErr(err)
 			data, err := readSlice(d, length)
 			d.panicErr(err)
 			d.tokChan <- Opaque(data)
-		case ext0, ext1, ext2,
-			extI0, extI1, extI2,
-			extT0, extT1, extT2:
+		case gloExt0, gloExt1, gloExt2,
+			gloExtI0, gloExtI1, gloExtI2,
+			gloExtT0, gloExtT1, gloExtT2:
 			panic(fmt.Errorf("extension token unimplemented (token %d)", b))
-		case end:
+		case gloEnd:
 			d.sendCharData(&cdata)
 			return
 		default:
@@ -282,17 +282,17 @@ func (d *Decoder) charData(cdata *CharData, b byte) {
 		*cdata = make([]byte, 0)
 	}
 	switch b {
-	case strI:
+	case gloStrI:
 		str, err := readString(d)
 		d.panicErr(err)
 		*cdata = append(*cdata, str...)
-	case strT:
+	case gloStrT:
 		index, err := mbUint32(d)
 		d.panicErr(err)
 		str, err := d.GetString(index)
 		d.panicErr(err)
 		*cdata = append(*cdata, str...)
-	case entity:
+	case gloEntity:
 		entcode, err := mbUint32(d)
 		d.panicErr(err)
 		if len(*cdata) > 0 {

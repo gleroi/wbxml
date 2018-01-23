@@ -13,7 +13,10 @@ func XML(w io.Writer, wb *Decoder) (finalError error) {
 	x := xml.NewEncoder(w)
 	x.Indent("", "  ")
 	defer func() {
-		x.Flush()
+		err := x.Flush()
+		if err != nil {
+			finalError = err
+		}
 	}()
 
 	for {
@@ -26,7 +29,7 @@ func XML(w io.Writer, wb *Decoder) (finalError error) {
 		case StartElement:
 			x.EncodeToken(xml.StartElement{
 				Name: xml.Name{Local: t.Name},
-				Attr: mapAttrToXml(t.Attr),
+				Attr: mapAttrToXML(t.Attr),
 			})
 		case CharData:
 			x.EncodeToken(xml.CharData(t))
@@ -42,7 +45,7 @@ func XML(w io.Writer, wb *Decoder) (finalError error) {
 	}
 }
 
-func mapAttrToXml(attrs []Attr) []xml.Attr {
+func mapAttrToXML(attrs []Attr) []xml.Attr {
 	x := make([]xml.Attr, len(attrs))
 	for i, attr := range attrs {
 		x[i] = xml.Attr{
