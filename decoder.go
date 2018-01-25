@@ -3,6 +3,8 @@ package wbxml
 import (
 	"fmt"
 	"io"
+	"reflect"
+	"strconv"
 	"unicode/utf8"
 )
 
@@ -36,6 +38,111 @@ func (d *Decoder) Token() (Token, error) {
 		return tok, d.err
 	}
 	return tok, nil
+}
+
+func (d *Decoder) Decode(v interface{}) error {
+	return d.DecodeElement(v, nil)
+}
+
+func (d *Decoder) DecodeElement(v interface{}, start *StartElement) error {
+	val := reflect.ValueOf(v)
+
+	if val.Kind() == reflect.Interface {
+		val = val.Elem()
+	}
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
+	}
+
+	if start == nil {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		if st, ok := tok.(StartElement); ok {
+			start = &st
+		} else {
+			return fmt.Errorf("expected a StartElement, got %t", tok)
+		}
+	}
+
+	switch t := val.Type(); val.Kind() {
+	case reflect.Struct:
+		for {
+			tok, err := d.Token()
+			if err != nil {
+				return err
+			}
+			if end, ok := tok.(EndElement); ok {
+				if end.Name == start.Name {
+					return nil
+				}
+				return fmt.Errorf("expected end element %s, got %s", start.Name, end.Name)
+			}
+			if st, ok := tok.(StartElement); ok {
+				if _, ok := t.FieldByName(st.Name); ok {
+					fld := val.FieldByName(st.Name)
+					if fld.CanAddr() {
+						fld = fld.Addr()
+					}
+					if fld.CanInterface() {
+						err := d.DecodeElement(fld.Interface(), &st)
+						if err != nil {
+							return err
+						}
+					} else {
+						return fmt.Errorf("tag %s: type %s can't be used as interface{}", st.Name, t.Name())
+					}
+				} else {
+					return fmt.Errorf("struct %s has no field %s", t.Name(), st.Name)
+				}
+			}
+		}
+	case reflect.String:
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		if cdata, ok := tok.(CharData); ok {
+			val.SetString(string(cdata))
+			tok, err := d.Token()
+			if err != nil {
+				return err
+			}
+			if end, ok := tok.(EndElement); !ok || end.Name != start.Name {
+				return fmt.Errorf("expected end element %s, got %s", start.Name, end.Name)
+			}
+			return nil
+		}
+		return fmt.Errorf("expected a CharData, got %t", tok)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		switch itok := tok.(type) {
+		case Entity:
+			val.SetUint(uint64(itok))
+		case CharData:
+			i, err := strconv.ParseUint(string(itok), 10, 8)
+			if err != nil {
+				return fmt.Errorf("field %s: %s", start.Name, err)
+			}
+			val.SetUint(i)
+		default:
+			return fmt.Errorf("expected a number, got %T", tok)
+		}
+		tok, err = d.Token()
+		if err != nil {
+			return err
+		}
+		if end, ok := tok.(EndElement); !ok || end.Name != start.Name {
+			return fmt.Errorf("expected end element %s, got %+v", start.Name, tok)
+		}
+		return nil
+	default:
+		return fmt.Errorf("%s not implemented", t.Name())
+	}
 }
 
 func (d *Decoder) GetString(i uint32) ([]byte, error) {
@@ -241,7 +348,7 @@ func (d *Decoder) content() {
 	// content() accumulate adjacent CharData in a unique instance until END or ELEMENT is
 	// encountered
 
-	var cdata CharData
+	var cdata CharData = nil
 	for {
 		b, err := readByte(d)
 		d.panicErr(err)
@@ -278,7 +385,7 @@ func (d *Decoder) sendCharData(cdata *CharData) {
 }
 
 func (d *Decoder) charData(cdata *CharData, b byte) {
-	if *cdata == nil {
+	if cdata == nil {
 		*cdata = make([]byte, 0)
 	}
 	switch b {
