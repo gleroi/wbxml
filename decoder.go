@@ -326,6 +326,10 @@ func (d *Decoder) readAttrValue() (string, byte) {
 		d.panicErr(err)
 
 		switch b {
+		case gloSwitchPage:
+			index, err := readByte(d)
+			d.panicErr(err)
+			d.attrPage = index
 		case gloStrI, gloStrT, gloEntity:
 			d.charData(&cdata, b)
 		case gloExt0, gloExt1, gloExt2,
