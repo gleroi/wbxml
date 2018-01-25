@@ -26,38 +26,32 @@ var tagSpaceExamples = []struct {
 }{
 	{
 		tags: CodeSpace{
-			pages: map[byte]CodePage{
-				0: CodePage{
-					5: "BR",
-					6: "CARD",
-					7: "XYZ",
-				},
+			0: CodePage{
+				5: "BR",
+				6: "CARD",
+				7: "XYZ",
 			},
 		},
 	},
 	{
 		tags: CodeSpace{
-			pages: map[byte]CodePage{
-				0: CodePage{
-					5: "CARD",
-					6: "INPUT",
-					7: "XYZ",
-					8: "DO",
-				},
+			0: CodePage{
+				5: "CARD",
+				6: "INPUT",
+				7: "XYZ",
+				8: "DO",
 			},
 		},
 		attrs: CodeSpace{
-			pages: map[byte]CodePage{
-				0: CodePage{
-					0x05: "STYLE",
-					0x06: "TYPE",
-					0x07: "TYPE",
-					0x08: "URL",
-					0x09: "NAME",
-					0x0A: "KEY",
-					0x85: ".org",
-					0x86: "ACCEPT",
-				},
+			0: CodePage{
+				0x05: "STYLE",
+				0x06: "TYPE",
+				0x07: "TYPE",
+				0x08: "URL",
+				0x09: "NAME",
+				0x0A: "KEY",
+				0x85: ".org",
+				0x86: "ACCEPT",
 			},
 		},
 	},

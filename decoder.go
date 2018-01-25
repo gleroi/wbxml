@@ -9,9 +9,12 @@ import (
 )
 
 type Decoder struct {
-	r     io.Reader
-	tags  CodeSpace
-	attrs CodeSpace
+	r io.Reader
+
+	tagPage  byte
+	tags     CodeSpace
+	attrPage byte
+	attrs    CodeSpace
 
 	offset  int
 	tokChan chan Token
@@ -21,7 +24,8 @@ type Decoder struct {
 
 func NewDecoder(r io.Reader, tags CodeSpace, attrs CodeSpace) *Decoder {
 	d := &Decoder{
-		r:       r,
+		r: r,
+
 		tags:    tags,
 		attrs:   attrs,
 		tokChan: make(chan Token),
@@ -157,16 +161,16 @@ func (d *Decoder) GetString(i uint32) ([]byte, error) {
 	return nil, fmt.Errorf("StringTable: no NULL terminator found")
 }
 
-func (d *Decoder) tagName(page, code byte) string {
-	name, err := d.tags.Name(page, code)
+func (d *Decoder) tagName(code byte) string {
+	name, err := d.tags.Name(d.tagPage, code)
 	if err != nil {
 		d.panicErr(err)
 	}
 	return name
 }
 
-func (d *Decoder) attrName(page, code byte) string {
-	name, err := d.attrs.Name(page, code)
+func (d *Decoder) attrName(code byte) string {
+	name, err := d.attrs.Name(d.attrPage, code)
 	if err != nil {
 		d.panicErr(err)
 	}
@@ -260,18 +264,16 @@ func (d *Decoder) piStar() {
 }
 
 func (d *Decoder) element(b byte) {
-	var page byte
-
 	switch b {
 	case gloSwitchPage:
 		index, err := readByte(d)
 		d.panicErr(err)
-		page = index
+		d.tagPage = index
 	case gloLiteral, gloLiteralA, gloLiteralC, gloLiteralAC:
 		panic(fmt.Errorf("literal tag not implemented"))
 	default:
 		tag := Tag(b)
-		tagName := d.tagName(page, tag.ID())
+		tagName := d.tagName(tag.ID())
 		tok := StartElement{Name: tagName}
 		if tag.Attr() {
 			d.attributes(&tok)
@@ -285,7 +287,6 @@ func (d *Decoder) element(b byte) {
 }
 
 func (d *Decoder) attributes(elt *StartElement) {
-	var page byte
 	b, err := readByte(d)
 	d.panicErr(err)
 
@@ -294,7 +295,7 @@ func (d *Decoder) attributes(elt *StartElement) {
 		case gloSwitchPage:
 			index, err := readByte(d)
 			d.panicErr(err)
-			page = index
+			d.attrPage = index
 		case gloLiteral:
 			var attr Attr
 			index, err := mbUint32(d)
@@ -302,7 +303,7 @@ func (d *Decoder) attributes(elt *StartElement) {
 			name, err := d.GetString(index)
 			d.panicErr(err)
 			attr.Name = string(name)
-			attr.Value, b = d.readAttrValue(page)
+			attr.Value, b = d.readAttrValue()
 			elt.Attr = append(elt.Attr, attr)
 		case gloEnd:
 			return
@@ -311,15 +312,14 @@ func (d *Decoder) attributes(elt *StartElement) {
 				panic(fmt.Errorf("unexpected attribute value"))
 			}
 			var attr Attr
-			attr.Name = d.attrName(page, b)
-			attr.Value, b = d.readAttrValue(page)
+			attr.Name = d.attrName(b)
+			attr.Value, b = d.readAttrValue()
 			elt.Attr = append(elt.Attr, attr)
 		}
 	}
 }
 
-func (d *Decoder) readAttrValue(page byte) (string, byte) {
-
+func (d *Decoder) readAttrValue() (string, byte) {
 	var cdata CharData
 	for {
 		b, err := readByte(d)
@@ -339,7 +339,7 @@ func (d *Decoder) readAttrValue(page byte) (string, byte) {
 				return string(cdata), b
 				//panic(fmt.Errorf("unexpected attribute tag name %d", b))
 			}
-			cdata = append(cdata, []byte(d.attrName(page, b))...)
+			cdata = append(cdata, []byte(d.attrName(b))...)
 		}
 	}
 }

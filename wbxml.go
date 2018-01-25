@@ -42,13 +42,11 @@ import (
 
 // CodeSpace represents the mapping of a tag or attribute to its code, organized in pages
 // of overlapping code to tag mapping.
-type CodeSpace struct {
-	pages map[byte]CodePage
-}
+type CodeSpace map[byte]CodePage
 
 // Name return the name of tag encoded by (pageID, code).
 func (space CodeSpace) Name(pageID byte, code byte) (string, error) {
-	page, ok := space.pages[pageID]
+	page, ok := space[pageID]
 	if !ok {
 		return "", fmt.Errorf("Unknown page %d", pageID)
 	}
