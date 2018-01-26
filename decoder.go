@@ -114,7 +114,7 @@ func (d *Decoder) DecodeElement(v interface{}, start *StartElement) error {
 				return err
 			}
 			if end, ok := tok.(EndElement); !ok || end.Name != start.Name {
-				return fmt.Errorf("expected end element %s, got %s", start.Name, end.Name)
+				return fmt.Errorf("expected end element %s, got %+v", start.Name, tok)
 			}
 			return nil
 		}
