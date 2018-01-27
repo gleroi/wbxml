@@ -8,6 +8,10 @@ import (
 	"unicode/utf8"
 )
 
+type Unmarshaler interface {
+	UnmarshalWBXML(d *Decoder, st *StartElement) error
+}
+
 type Decoder struct {
 	r io.Reader
 
@@ -49,14 +53,6 @@ func (d *Decoder) Decode(v interface{}) error {
 }
 
 func (d *Decoder) DecodeElement(v interface{}, start *StartElement) error {
-	val := reflect.ValueOf(v)
-
-	if val.Kind() == reflect.Interface {
-		val = val.Elem()
-	}
-	if val.Kind() == reflect.Ptr {
-		val = val.Elem()
-	}
 
 	if start == nil {
 		tok, err := d.Token()
@@ -68,6 +64,17 @@ func (d *Decoder) DecodeElement(v interface{}, start *StartElement) error {
 		} else {
 			return fmt.Errorf("expected a StartElement, got %t", tok)
 		}
+	}
+
+	val := reflect.ValueOf(v)
+	if val.Kind() == reflect.Interface {
+		val = val.Elem()
+	}
+	if val.Kind() == reflect.Ptr {
+		if un, ok := val.Interface().(Unmarshaler); ok {
+			return un.UnmarshalWBXML(d, start)
+		}
+		val = val.Elem()
 	}
 
 	switch t := val.Type(); val.Kind() {
@@ -98,7 +105,16 @@ func (d *Decoder) DecodeElement(v interface{}, start *StartElement) error {
 						return fmt.Errorf("tag %s: type %s can't be used as interface{}", st.Name, t.Name())
 					}
 				} else {
-					return fmt.Errorf("struct %s has no field %s", t.Name(), st.Name)
+					// struct has no field named st.Name, find its end tag and iterate.
+					for {
+						tok, err := d.Token()
+						if err != nil {
+							return err
+						}
+						if end, ok := tok.(EndElement); ok && end.Name == st.Name {
+							break
+						}
+					}
 				}
 			}
 		}
@@ -136,17 +152,24 @@ func (d *Decoder) DecodeElement(v interface{}, start *StartElement) error {
 		default:
 			return fmt.Errorf("expected a number, got %T", tok)
 		}
-		tok, err = d.Token()
-		if err != nil {
-			return err
-		}
-		if end, ok := tok.(EndElement); !ok || end.Name != start.Name {
-			return fmt.Errorf("expected end element %s, got %+v", start.Name, tok)
-		}
-		return nil
+		return d.expectedEnd(start)
+	case reflect.Bool:
+		val.SetBool(true)
+		return d.expectedEnd(start)
 	default:
 		return fmt.Errorf("%s not implemented", t.Name())
 	}
+}
+
+func (d *Decoder) expectedEnd(start *StartElement) error {
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if end, ok := tok.(EndElement); !ok || end.Name != start.Name {
+		return fmt.Errorf("expected end element %s, got %+v", start.Name, tok)
+	}
+	return nil
 }
 
 func (d *Decoder) GetString(i uint32) ([]byte, error) {

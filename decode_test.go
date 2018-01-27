@@ -3,6 +3,7 @@ package wbxml
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"testing"
 
@@ -129,7 +130,8 @@ func TestDecoderToken(t *testing.T) {
 }
 
 type msg struct {
-	SyncHdr header
+	SyncHdr  header
+	SyncBody body
 }
 
 type header struct {
@@ -143,6 +145,15 @@ type header struct {
 
 type endpoint struct {
 	LocURI string
+}
+
+type body struct {
+	Status   status
+	Final    bool
+	NotFinal bool
+}
+
+type status struct {
 }
 
 func TestDecoderDecode(t *testing.T) {
@@ -160,6 +171,9 @@ func TestDecoderDecode(t *testing.T) {
 				LocURI: "gdo:99005Z1338-21178",
 			},
 		},
+		SyncBody: body{
+			Final: true,
+		},
 	}
 
 	data, err := hex.DecodeString(input)
@@ -170,6 +184,94 @@ func TestDecoderDecode(t *testing.T) {
 	d := NewDecoder(r, SyncMLTags, CodeSpace{})
 
 	var m msg
+	err = d.Decode(&m)
+
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	assert.Equal(t, expected, m)
+}
+
+type msg2 struct {
+	SyncHdr  header
+	SyncBody body2
+}
+
+type body2 []cmd
+
+func (b *body2) UnmarshalWBXML(d *Decoder, start *StartElement) error {
+	for {
+
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+
+		if end, ok := tok.(EndElement); ok {
+			if end.Name == start.Name {
+				return nil
+			}
+			return fmt.Errorf("unexpected end element %s", end.Name)
+		}
+
+		st, ok := tok.(StartElement)
+		if !ok {
+			return fmt.Errorf("expected a start element, got %v", tok)
+		}
+
+		switch st.Name {
+		case "Status":
+			status := status{}
+			err := d.DecodeElement(&status, &st)
+			if err != nil {
+				return err
+			}
+			*b = append(*b, status)
+		case "Final":
+			f := final(false)
+			err := d.DecodeElement(&f, &st)
+			if err != nil {
+				return err
+			}
+			*b = append(*b, f)
+		}
+	}
+	return nil
+}
+
+type cmd interface{}
+
+type final bool
+
+func TestDecoderDecodeWithUnmarshalWBXML(t *testing.T) {
+	input := "030000030212016d6c7103312e32000172036d326d2f312e32000165035337654e6500015b025e016757037463703a2f2f4163637565696c2e4e6f6349642e616d6d2e66720001016e570367646f3a39393030355a313333382d32313137380001015a000146000849c34830460221009a9f724f5146b6e26a357b4b53221388beef1a95c6f4ba9f0572d5854f023e540221008dd885e08828436c6e2b08fbb816d359791b9d8cb1ca6334f8201fee130909a901010001010000016b694b0201015c025d014c0201014a0350757400014f028374010152010101"
+	expected := msg2{
+		SyncHdr: header{
+			VerDTD:    "1.2",
+			VerProto:  "m2m/1.2",
+			SessionID: "S7eNe",
+			MsgID:     94,
+			Source: endpoint{
+				LocURI: "tcp://Accueil.NocId.amm.fr",
+			},
+			Target: endpoint{
+				LocURI: "gdo:99005Z1338-21178",
+			},
+		},
+		SyncBody: body2{
+			status{},
+			final(true),
+		},
+	}
+
+	data, err := hex.DecodeString(input)
+	if err != nil {
+		panic(err)
+	}
+	r := bytes.NewReader(data)
+	d := NewDecoder(r, SyncMLTags, CodeSpace{})
+
+	var m msg2
 	err = d.Decode(&m)
 
 	if err != nil {
