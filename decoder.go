@@ -125,16 +125,9 @@ func (d *Decoder) DecodeElement(v interface{}, start *StartElement) error {
 		}
 		if cdata, ok := tok.(CharData); ok {
 			val.SetString(string(cdata))
-			tok, err := d.Token()
-			if err != nil {
-				return err
-			}
-			if end, ok := tok.(EndElement); !ok || end.Name != start.Name {
-				return fmt.Errorf("expected end element %s, got %+v", start.Name, tok)
-			}
-			return nil
+			return d.expectedEnd(start)
 		}
-		return fmt.Errorf("expected a CharData, got %t", tok)
+		return fmt.Errorf("string expected a CharData, got %t", tok)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		tok, err := d.Token()
 		if err != nil {
@@ -153,11 +146,54 @@ func (d *Decoder) DecodeElement(v interface{}, start *StartElement) error {
 			return fmt.Errorf("expected a number, got %T", tok)
 		}
 		return d.expectedEnd(start)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		switch itok := tok.(type) {
+		case Entity:
+			val.SetInt(int64(itok))
+		case CharData:
+			i, err := strconv.ParseInt(string(itok), 10, 8)
+			if err != nil {
+				return fmt.Errorf("field %s: %s", start.Name, err)
+			}
+			val.SetInt(i)
+		default:
+			return fmt.Errorf("expected a number, got %T", tok)
+		}
+		return d.expectedEnd(start)
 	case reflect.Bool:
 		val.SetBool(true)
 		return d.expectedEnd(start)
+	case reflect.Slice:
+
+		if t.Elem().Kind() == reflect.Uint8 {
+			tok, err := d.Token()
+			if err != nil {
+				return err
+			}
+			if cdata, ok := tok.(CharData); ok {
+				val.Set(reflect.AppendSlice(val, reflect.ValueOf(cdata)))
+				return d.expectedEnd(start)
+			}
+			return fmt.Errorf("[]byte expected a CharData, got %t", tok)
+		}
+
+		// Append element to slice
+		n := val.Len()
+		val.Set(reflect.Append(val, reflect.Zero(t.Elem())))
+
+		// Decode element, remove it if failed
+		if err := d.DecodeElement(val.Index(n).Addr().Interface(), start); err != nil {
+			val.SetLen(n)
+			return err
+		}
+		return nil
+
 	default:
-		return fmt.Errorf("%s not implemented", t.Name())
+		return fmt.Errorf("%s not implemented", t.Kind())
 	}
 }
 
