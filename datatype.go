@@ -11,6 +11,12 @@ func readByte(d *Decoder) (byte, error) {
 	return b[0], err
 }
 
+func writeByte(e *Encoder, b byte) error {
+	buf := [1]byte{b}
+	_, err := e.w.Write(buf[:])
+	return err
+}
+
 func mbUint(d *Decoder, max int) (uint64, error) {
 	var result uint64
 

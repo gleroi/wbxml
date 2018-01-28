@@ -140,14 +140,17 @@ func (d *Decoder) panicErr(err error) {
 // Tag represents a non global tag in a WBXML document.
 type Tag byte
 
+const tagAttrMask = 0x80
+const tagContentMask = 0x40
+
 // Attr returns if a Tag has some attribute following it.
 func (t Tag) Attr() bool {
-	return t&0x80 == 0x80
+	return t&tagAttrMask == tagAttrMask
 }
 
 // Content return if a Tag has some content followinf it.
 func (t Tag) Content() bool {
-	return t&0x40 == 0x40
+	return t&tagContentMask == tagContentMask
 }
 
 // ID return the code identifying a Tag in its code space.
