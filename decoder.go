@@ -127,6 +127,10 @@ func (d *Decoder) DecodeElement(v interface{}, start *StartElement) error {
 			val.SetString(string(cdata))
 			return d.expectedEnd(start)
 		}
+		if opaque, ok := tok.(Opaque); ok {
+			val.SetString(string(opaque))
+			return d.expectedEnd(start)
+		}
 		return fmt.Errorf("string expected a CharData, got %t", tok)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		tok, err := d.Token()
@@ -177,6 +181,13 @@ func (d *Decoder) DecodeElement(v interface{}, start *StartElement) error {
 			if cdata, ok := tok.(CharData); ok {
 				val.Set(reflect.AppendSlice(val, reflect.ValueOf(cdata)))
 				return d.expectedEnd(start)
+			}
+			if opaque, ok := tok.(Opaque); ok {
+				val.Set(reflect.AppendSlice(val, reflect.ValueOf(opaque)))
+				return d.expectedEnd(start)
+			}
+			if end, ok := tok.(EndElement); ok && end.Name == start.Name {
+				return nil
 			}
 			return fmt.Errorf("[]byte expected a CharData, got %t", tok)
 		}
