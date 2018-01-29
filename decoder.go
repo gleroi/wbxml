@@ -67,10 +67,13 @@ func (d *Decoder) DecodeElement(v interface{}, start *StartElement) error {
 	}
 
 	val := reflect.ValueOf(v)
-	if val.Kind() == reflect.Interface {
+	if val.Kind() == reflect.Interface && !val.IsNil() {
 		val = val.Elem()
 	}
 	if val.Kind() == reflect.Ptr {
+		if val.IsNil() {
+			val.Set(reflect.New(val.Type().Elem()))
+		}
 		if un, ok := val.Interface().(Unmarshaler); ok {
 			return un.UnmarshalWBXML(d, start)
 		}
@@ -93,7 +96,10 @@ func (d *Decoder) DecodeElement(v interface{}, start *StartElement) error {
 			if st, ok := tok.(StartElement); ok {
 				if _, ok := t.FieldByName(st.Name); ok {
 					fld := val.FieldByName(st.Name)
-					if fld.CanAddr() {
+					if fld.Kind() == reflect.Ptr && fld.IsNil() {
+						fld.Set(reflect.New(fld.Type().Elem()))
+					}
+					if fld.Kind() != reflect.Ptr && fld.CanAddr() {
 						fld = fld.Addr()
 					}
 					if fld.CanInterface() {

@@ -9,9 +9,9 @@ import (
 )
 
 // XML pretty print WBXML to textual XML
-func XML(w io.Writer, wb *Decoder) (finalError error) {
+func XML(w io.Writer, wb *Decoder, indent string) (finalError error) {
 	x := xml.NewEncoder(w)
-	x.Indent("", "  ")
+	x.Indent("", indent)
 	defer func() {
 		err := x.Flush()
 		if err != nil {

@@ -109,7 +109,7 @@ func ExampleXML() {
 	d := NewDecoder(r, SyncMLTags, CodeSpace{})
 	w := bytes.NewBuffer(nil)
 
-	err = XML(w, d)
+	err = XML(w, d, "  ")
 	if err != nil && err != io.EOF {
 		panic(err)
 	}
