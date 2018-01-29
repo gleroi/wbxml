@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"reflect"
 )
 
 type Encoder struct {
@@ -33,11 +34,11 @@ func NewEncoder(w io.Writer, tags CodeSpace, attrs CodeSpace) *Encoder {
 	return e
 }
 
-func (d *Encoder) GetIndex(str []byte) (uint32, bool) {
+func (e *Encoder) GetIndex(str []byte) (uint32, bool) {
 	start := 0
-	for end, b := range d.Header.StringTable {
+	for end, b := range e.Header.StringTable {
 		if b == 0 {
-			if bytes.Equal(str, d.Header.StringTable[start:end]) {
+			if bytes.Equal(str, e.Header.StringTable[start:end]) {
 				return uint32(start), true
 			}
 			start = end + 1
@@ -46,52 +47,168 @@ func (d *Encoder) GetIndex(str []byte) (uint32, bool) {
 	return 0, false
 }
 
-func (d *Encoder) EncodeHeader(h Header) error {
-	d.Header = h
+func (e *Encoder) EncodeHeader(h Header) error {
+	e.Header = h
 
-	err := writeByte(d, h.Version)
+	err := writeByte(e, h.Version)
 	if err != nil {
 		return err
 	}
 
-	err = writeMbUint32(d, h.PublicID)
+	err = writeMbUint32(e, h.PublicID)
 	if err != nil {
 		return err
 	}
 	if h.PublicID == 0 {
-		err = writeMbUint32(d, h.PublicID)
+		err = writeMbUint32(e, h.PublicID)
 		if err != nil {
 			return err
 		}
 	}
 
-	err = writeMbUint32(d, h.Charset)
+	err = writeMbUint32(e, h.Charset)
 	if err != nil {
 		return err
 	}
 
-	return writeOpaque(d, h.StringTable)
+	err = writeMbUint32(e, uint32(len(h.StringTable)))
+	if err != nil {
+		return err
+	}
+
+	return writeSlice(e, h.StringTable)
 }
 
-func (d *Encoder) EncodeToken(tok Token) error {
+func (e *Encoder) EncodeElement(v interface{}, start StartElement) error {
+	val := reflect.ValueOf(v)
+
+	if v == nil {
+		return nil
+	}
+	if val.Kind() == reflect.Interface && !val.IsNil() {
+		val = val.Elem()
+	}
+	if val.Kind() == reflect.Ptr && !val.IsNil() {
+		val = val.Elem()
+	}
+	if !val.IsValid() {
+		return nil
+	}
+	return e.unmarshalValue(val, start)
+}
+
+func (e *Encoder) unmarshalValue(val reflect.Value, start StartElement) error {
+	kind := val.Kind()
+	typ := val.Type()
+
+	switch kind {
+	case reflect.Struct:
+		start.Content = false
+		for i := 0; i < val.NumField(); i++ {
+			fld := val.Field(i)
+			if fld.IsValid() {
+				start.Content = true
+				break
+			}
+		}
+		err := e.EncodeToken(start)
+		if err != nil {
+			return err
+		}
+		for i := 0; i < val.NumField() && start.Content; i++ {
+			fld := val.Field(i)
+			if fld.IsValid() {
+				err := e.unmarshalValue(fld, StartElement{Name: typ.Field(i).Name})
+				if err != nil {
+					return fmt.Errorf("%s.%s: %s", typ.Name(), typ.Field(i).Name, err)
+				}
+			}
+		}
+		return e.EncodeToken(EndElement{Name: start.Name})
+	case reflect.Slice:
+		start.Content = val.Len() > 0
+		err := e.EncodeToken(start)
+		if err != nil {
+			return err
+		}
+		if start.Content {
+			if typ.Elem().Kind() == reflect.Uint8 {
+				err := e.EncodeToken(Opaque(val.Bytes()))
+				if err != nil {
+					return err
+				}
+			} else {
+
+			}
+		}
+		return e.EncodeToken(EndElement{Name: start.Name})
+	case reflect.String:
+		start.Content = val.Len() > 0
+		err := e.EncodeToken(start)
+		if err != nil {
+			return err
+		}
+		if start.Content {
+			err := e.EncodeToken(CharData(val.String()))
+			if err != nil {
+				return err
+			}
+		}
+		return e.EncodeToken(EndElement{Name: start.Name})
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		start.Content = true
+		err := e.EncodeToken(start)
+		if err != nil {
+			return err
+		}
+		err = e.EncodeToken(Entity(val.Uint()))
+		if err != nil {
+			return err
+		}
+		return e.EncodeToken(EndElement{Name: start.Name})
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		start.Content = true
+		err := e.EncodeToken(start)
+		if err != nil {
+			return err
+		}
+		err = e.EncodeToken(Entity(val.Int()))
+		if err != nil {
+			return err
+		}
+		return e.EncodeToken(EndElement{Name: start.Name})
+	case reflect.Bool:
+		if val.Bool() {
+			start.Content = true
+			err := e.EncodeToken(start)
+			if err != nil {
+				return err
+			}
+			err = e.EncodeToken(EndElement{Name: start.Name})
+			if err != nil {
+				return err
+			}
+		}
+	default:
+		return fmt.Errorf("%s (%s) not supported", val.Kind(), typ.Name())
+	}
+	return nil
+}
+
+func (e *Encoder) EncodeToken(tok Token) error {
 	switch tok := tok.(type) {
 	case StartElement:
-		return d.encodeTag(tok)
+		return e.encodeTag(tok)
 	case EndElement:
-		ilen := len(d.ignoreEnd)
-		if ilen > 0 && tok.Name == d.ignoreEnd[ilen-1] {
-			d.ignoreEnd = d.ignoreEnd[:ilen-1]
-			return nil
-		}
-		return writeByte(d, gloEnd)
+		return e.encodeEnd(tok)
 	case ProcInst:
 		return fmt.Errorf("not implemented")
 	case CharData:
-		return d.writeString(tok)
+		return e.writeString(tok)
 	case Opaque:
-		return writeOpaque(d, tok)
+		return writeOpaque(e, tok)
 	case Entity:
-		return writeMbUint32(d, uint32(tok))
+		return e.writeEntity(tok)
 	default:
 		return fmt.Errorf("unknown token %T", tok)
 	}
@@ -99,12 +216,12 @@ func (d *Encoder) EncodeToken(tok Token) error {
 
 // tag return the tag code, page or and error.
 // tag is -1 if no switch page is needed
-func (d *Encoder) tag(tag string) (byte, byte, error) {
-	return findCodePage(d.tags, tag)
+func (e *Encoder) tag(tag string) (byte, byte, error) {
+	return findCodePage(e.tags, tag)
 }
 
-func (d *Encoder) attribute(tag string) (byte, byte, error) {
-	return findCodePage(d.attrs, tag)
+func (e *Encoder) attribute(tag string) (byte, byte, error) {
+	return findCodePage(e.attrs, tag)
 }
 
 // findCodePage return the a code, page or and error.
@@ -120,12 +237,12 @@ func findCodePage(space CodeSpace, tag string) (byte, byte, error) {
 	return 0, 0, fmt.Errorf("unknown tag %s", tag)
 }
 
-func (d *Encoder) encodeTag(tok StartElement) error {
-	code, page, err := d.tag(tok.Name)
+func (e *Encoder) encodeTag(tok StartElement) error {
+	code, page, err := e.tag(tok.Name)
 	if err != nil {
 		return err
 	}
-	err = d.switchTagPage(page)
+	err = e.switchTagPage(page)
 	if err != nil {
 		return err
 	}
@@ -137,84 +254,101 @@ func (d *Encoder) encodeTag(tok StartElement) error {
 		finalCode |= tagContentMask
 	} else {
 		// no content, remember to not write end for this tag
-		d.ignoreEnd = append(d.ignoreEnd, tok.Name)
+		e.ignoreEnd = append(e.ignoreEnd, tok.Name)
 	}
-	err = writeByte(d, finalCode)
+	err = writeByte(e, finalCode)
 	if err != nil {
 		return err
 	}
 
-	return d.encodeAttrs(tok.Attr)
+	return e.encodeAttrs(tok.Attr)
 }
 
-func (d *Encoder) encodeAttrs(attrs []Attr) error {
+func (e *Encoder) encodeAttrs(attrs []Attr) error {
 	if len(attrs) == 0 {
 		return nil
 	}
 	for _, attr := range attrs {
-		code, page, err := d.attribute(attr.Name)
+		code, page, err := e.attribute(attr.Name)
 		if err != nil {
 			return err
 		}
 
-		err = d.switchTagPage(page)
+		err = e.switchTagPage(page)
 		if err != nil {
 			return err
 		}
 
-		err = writeByte(d, code)
+		err = writeByte(e, code)
 		if err != nil {
 			return err
 		}
 
-		code, page, err = d.attribute(attr.Value)
+		code, page, err = e.attribute(attr.Value)
 		if err == nil {
-			err := d.switchTagPage(page)
+			err := e.switchTagPage(page)
 			if err != nil {
 				return err
 			}
-			err = writeByte(d, code)
+			err = writeByte(e, code)
 			if err != nil {
 				return err
 			}
 		} else {
-			d.writeString([]byte(attr.Value))
+			e.writeString([]byte(attr.Value))
 		}
 	}
-	return writeByte(d, gloEnd)
+	return writeByte(e, gloEnd)
 }
 
-func (d *Encoder) switchTagPage(p byte) error {
-	if p == d.tagPage {
+func (e *Encoder) encodeEnd(tok EndElement) error {
+	ilen := len(e.ignoreEnd)
+	if ilen > 0 && tok.Name == e.ignoreEnd[ilen-1] {
+		e.ignoreEnd = e.ignoreEnd[:ilen-1]
 		return nil
 	}
-	d.tagPage = byte(p)
-	err := writeByte(d, gloSwitchPage)
+	_, page, err := e.tag(tok.Name)
 	if err != nil {
 		return err
 	}
-	return writeByte(d, byte(p))
-}
-
-func (d *Encoder) switchAttrPage(p byte) error {
-	if p == d.attrPage {
-		return nil
-	}
-	d.attrPage = byte(p)
-	err := writeByte(d, gloSwitchPage)
+	err = writeByte(e, gloEnd)
 	if err != nil {
 		return err
 	}
-	return writeByte(d, byte(p))
+	return e.switchTagPage(page)
 }
 
-func (d *Encoder) writeString(cdata CharData) error {
-	if index, ok := d.GetIndex(cdata); ok {
-		err := writeByte(d, gloStrT)
+func (e *Encoder) switchTagPage(p byte) error {
+	if p == e.tagPage {
+		return nil
+	}
+	e.tagPage = byte(p)
+	err := writeByte(e, gloSwitchPage)
+	if err != nil {
+		return err
+	}
+	return writeByte(e, byte(p))
+}
+
+func (e *Encoder) switchAttrPage(p byte) error {
+	if p == e.attrPage {
+		return nil
+	}
+	e.attrPage = byte(p)
+	err := writeByte(e, gloSwitchPage)
+	if err != nil {
+		return err
+	}
+	return writeByte(e, byte(p))
+}
+
+func (e *Encoder) writeString(cdata CharData) error {
+	if index, ok := e.GetIndex(cdata); ok {
+		err := writeByte(e, gloStrT)
 		if err != nil {
 			return err
 		}
-		err = writeMbUint32(d, index)
+		err = writeMbUint32(e, index)
 		if err != nil {
 			return err
 		}
@@ -224,9 +358,17 @@ func (d *Encoder) writeString(cdata CharData) error {
 	if len(cdata) == 0 {
 		return nil
 	}
-	err := writeByte(d, gloStrI)
+	err := writeByte(e, gloStrI)
 	if err != nil {
 		return err
 	}
-	return writeString(d, cdata)
+	return writeString(e, cdata)
+}
+
+func (e *Encoder) writeEntity(tok Entity) error {
+	err := writeByte(e, gloEntity)
+	if err != nil {
+		return err
+	}
+	return writeMbUint32(e, uint32(tok))
 }

@@ -141,7 +141,11 @@ func writeSlice(d *Encoder, buf []byte) error {
 }
 
 func writeOpaque(d *Encoder, buf Opaque) error {
-	err := writeMbUint32(d, uint32(len(buf)))
+	err := writeByte(d, gloOpaque)
+	if err != nil {
+		return err
+	}
+	err = writeMbUint32(d, uint32(len(buf)))
 	if err != nil {
 		return err
 	}
