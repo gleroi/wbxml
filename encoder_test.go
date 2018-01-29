@@ -71,3 +71,7 @@ func TestEncoderToken(t *testing.T) {
 		assert.Equal(t, expected, w.Bytes(), "case %d", testID)
 	}
 }
+
+func TestEncoderEncode(t *testing.T) {
+
+}

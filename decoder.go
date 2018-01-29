@@ -352,6 +352,7 @@ func (d *Decoder) element(b byte) {
 		if tag.Attr() {
 			d.attributes(&tok)
 		}
+		tok.Content = tag.Content()
 		d.tokChan <- tok
 		if tag.Content() {
 			d.content()
