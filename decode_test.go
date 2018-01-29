@@ -216,7 +216,7 @@ func TestDecoderDecode(t *testing.T) {
 	}
 
 	r := bytes.NewReader(syncMLInput)
-	d := NewDecoder(r, SyncMLTags, CodeSpace{})
+	d := NewDecoder(r, syncMLTags, CodeSpace{})
 	var m msg
 	err := d.Decode(&m)
 
@@ -303,7 +303,7 @@ func TestDecoderDecodeWithUnmarshalWBXML(t *testing.T) {
 	}
 
 	r := bytes.NewReader(syncMLInput)
-	d := NewDecoder(r, SyncMLTags, CodeSpace{})
+	d := NewDecoder(r, syncMLTags, CodeSpace{})
 
 	var m msg2
 	err := d.Decode(&m)
@@ -358,7 +358,7 @@ func TestDecoderDecodeWithSlice(t *testing.T) {
 	}
 
 	r := bytes.NewReader(syncMLInput)
-	d := NewDecoder(r, SyncMLTags, CodeSpace{})
+	d := NewDecoder(r, syncMLTags, CodeSpace{})
 
 	var m msg3
 	err := d.Decode(&m)
@@ -398,7 +398,7 @@ func TestDecoderDecodeWithPointer(t *testing.T) {
 		panic(err)
 	}
 	r := bytes.NewReader(data)
-	d := NewDecoder(r, SyncMLTags, CodeSpace{})
+	d := NewDecoder(r, syncMLTags, CodeSpace{})
 
 	var m msg4
 	err = d.Decode(&m)

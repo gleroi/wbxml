@@ -8,7 +8,7 @@ import (
 	"os"
 )
 
-var SyncMLTags CodeSpace = CodeSpace{
+var syncMLTags CodeSpace = CodeSpace{
 	0: CodePage{
 		0x05: "Add",
 		0x06: "Alert",
@@ -106,7 +106,7 @@ func ExampleXML() {
 		panic(err)
 	}
 	r := bytes.NewReader(data)
-	d := NewDecoder(r, SyncMLTags, CodeSpace{})
+	d := NewDecoder(r, syncMLTags, CodeSpace{})
 	w := bytes.NewBuffer(nil)
 
 	err = XML(w, d, "  ")
