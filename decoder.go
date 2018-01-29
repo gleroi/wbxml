@@ -39,6 +39,10 @@ func NewDecoder(r io.Reader, tags CodeSpace, attrs CodeSpace) *Decoder {
 	return d
 }
 
+func (d *Decoder) Offset() int {
+	return d.offset
+}
+
 // Token returns the next token in the input stream, or nil and io.EOF at the end.
 func (d *Decoder) Token() (Token, error) {
 	tok := <-d.tokChan
