@@ -257,13 +257,11 @@ func (d *Decoder) run() {
 	defer func() {
 		if r := recover(); r != nil {
 			if err, ok := r.(error); ok {
-				if err == io.EOF {
-					d.err = err
-				} else {
-					panic(err)
-				}
+				d.err = err
+				close(d.tokChan)
+				return
 			}
-			close(d.tokChan)
+			panic(r)
 		}
 	}()
 

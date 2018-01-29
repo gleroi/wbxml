@@ -10,14 +10,39 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-var encodingExamples = [][]byte{
+var decodingExamples = [][]byte{
 	[]byte{
-		0x01, 0x01, 0x03, 0x00, 0x47, 0x46, 0x03, ' ', 'X', ' ', '&', ' ', 'Y', 0x00, 0x05, 0x03, ' ', 'X', 0x00, 0x02, 0x81, 0x20, 0x03, '=', 0x00, 0x02, 0x81, 0x20, 0x03, '1', ' ', 0x00, 0x01, 0x01},
+		0x01, 0x01, 0x03, 0x00, 0x47, 0x46, 0x03, ' ', 'X', ' ', '&', ' ', 'Y', 0x00, 0x05, 0x03, 0x20, 0x58, 0xc2, 0xa0, 0x3d, 0xc2, 0xa0, 0x31, 0x20, 0x00, 0x01, 0x01},
 	[]byte{
 		0x01, 0x01, 0x6A, 0x12, 'a', 'b', 'c', 0x00, ' ', 'E', 'n', 't', 'e', 'r', ' ', 'n',
 		'a', 'm', 'e', ':', ' ', 0x00, 0x47, 0xC5, 0x09, 0x83, 0x00, 0x05, 0x01, 0x88, 0x06,
 		0x86, 0x08, 0x03, 'x', 'y', 'z', 0x00, 0x85, 0x03, '/', 's', 0x00, 0x01, 0x83, 0x04,
-		0x86, 0x07, 0x0A, 0x03, 'N', 0x00, 0x01, 0x01, 0x01,
+		0x86, 0x06, 0x0A, 0x03, 'N', 0x00, 0x01, 0x01, 0x01,
+	},
+}
+
+var encodingExamples = [][]byte{
+	[]byte{
+		0x01, 0x01, 0x03, 0x00, 0x47, 0x46, 0x03, ' ', 'X', ' ', '&', ' ', 'Y', 0x00, 0x05, 0x03, 0x20, 0x58, 0xc2, 0xa0, 0x3d, 0xc2, 0xa0, 0x31, 0x20, 0x00, 0x01, 0x01},
+	[]byte{
+		0x01, 0x01, 0x6A, 0x12, 'a', 'b', 'c', 0x00, ' ', 'E', 'n', 't', 'e', 'r', ' ', 'n',
+		'a', 'm', 'e', ':', ' ', 0x00, 0x47, 0xC5, 0x09, 0x83, 0x00, 0x05, 0x01, 0x88, 0x06,
+		0x86, 0x08, 0x03, 'x', 'y', 'z', '.', 'o', 'r', 'g', '/', 's', 0x00, 0x01, 0x83, 0x04,
+		0x86, 0x06, 0x0A, 0x03, 'N', 0x00, 0x01, 0x01, 0x01,
+	},
+}
+
+var headerExamples = []Header{
+	Header{
+		Version:  1,
+		PublicID: 1,
+		Charset:  3,
+	},
+	Header{
+		Version:     1,
+		PublicID:    1,
+		Charset:     106,
+		StringTable: []byte{'a', 'b', 'c', 00, ' ', 'E', 'n', 't', 'e', 'r', ' ', 'n', 'a', 'm', 'e', ':', ' ', 00},
 	},
 }
 
@@ -47,7 +72,6 @@ var tagSpaceExamples = []struct {
 			0: CodePage{
 				0x05: "STYLE",
 				0x06: "TYPE",
-				0x07: "TYPE",
 				0x08: "URL",
 				0x09: "NAME",
 				0x0A: "KEY",
@@ -58,52 +82,53 @@ var tagSpaceExamples = []struct {
 	},
 }
 
-func TestDecoderToken(t *testing.T) {
-	tests := [][]Token{
-		[]Token{
-			StartElement{Name: "XYZ"},
-			StartElement{Name: "CARD"},
-			CharData(" X & Y"),
-			StartElement{Name: "BR"},
-			EndElement{Name: "BR"},
-			CharData(" X\u00A0=\u00A01 "),
-			EndElement{Name: "CARD"},
-			EndElement{Name: "XYZ"},
-			nil,
-		},
-		[]Token{
-			StartElement{Name: "XYZ"},
-			StartElement{
-				Name: "CARD",
-				Attr: []Attr{
-					Attr{"NAME", "abc"},
-					Attr{"STYLE", ""},
-				}},
-			StartElement{
-				Name: "DO",
-				Attr: []Attr{
-					Attr{"TYPE", "ACCEPT"},
-					Attr{"URL", "xyz.org/s"},
-				},
+var tokensExamples = [][]Token{
+	[]Token{
+		StartElement{Name: "XYZ", Content: true},
+		StartElement{Name: "CARD", Content: true},
+		CharData(" X & Y"),
+		StartElement{Name: "BR"},
+		EndElement{Name: "BR"},
+		CharData(" X\u00A0=\u00A01 "),
+		EndElement{Name: "CARD"},
+		EndElement{Name: "XYZ"},
+		nil,
+	},
+	[]Token{
+		StartElement{Name: "XYZ", Content: true},
+		StartElement{
+			Name:    "CARD",
+			Content: true,
+			Attr: []Attr{
+				Attr{"NAME", "abc"},
+				Attr{"STYLE", ""},
+			}},
+		StartElement{
+			Name: "DO",
+			Attr: []Attr{
+				Attr{"TYPE", "ACCEPT"},
+				Attr{"URL", "xyz.org/s"},
 			},
-			EndElement{Name: "DO"},
-			CharData(" Enter name: "),
-			StartElement{
-				Name: "INPUT",
-				Attr: []Attr{
-					Attr{"TYPE", ""},
-					Attr{"KEY", "N"},
-				},
-			},
-			EndElement{Name: "INPUT"},
-			EndElement{Name: "CARD"},
-			EndElement{Name: "XYZ"},
-			nil,
 		},
-	}
+		EndElement{Name: "DO"},
+		CharData(" Enter name: "),
+		StartElement{
+			Name: "INPUT",
+			Attr: []Attr{
+				Attr{"TYPE", ""},
+				Attr{"KEY", "N"},
+			},
+		},
+		EndElement{Name: "INPUT"},
+		EndElement{Name: "CARD"},
+		EndElement{Name: "XYZ"},
+		nil,
+	},
+}
 
-	for testID, expected := range tests {
-		input := encodingExamples[testID]
+func TestDecoderToken(t *testing.T) {
+	for testID, expected := range tokensExamples {
+		input := decodingExamples[testID]
 		space := tagSpaceExamples[testID]
 
 		r := bytes.NewReader(input)

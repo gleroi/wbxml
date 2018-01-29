@@ -68,6 +68,30 @@ func mbUint32(d *Decoder) (uint32, error) {
 	return uint32(u), nil
 }
 
+func writeMbUint(d *Encoder, v uint64, max int) error {
+	const M = 8
+	var buf [M]byte
+
+	b := byte(v & 0xFF)
+	buf[M-1] = b & 0x7f
+	v >>= 7
+
+	i := 2
+	for ; i <= max && v > 0; i++ {
+		b := byte(v & 0xFF)
+		buf[M-i] = 0x80 | (b & 0x7f)
+		v >>= 7
+	}
+	if v != 0 {
+		return fmt.Errorf("%d is to big to fit on %d bytes", v, max)
+	}
+	return writeSlice(d, buf[M-i+1:M])
+}
+
+func writeMbUint32(d *Encoder, v uint32) error {
+	return writeMbUint(d, uint64(v), 4)
+}
+
 func readString(d *Decoder) ([]byte, error) {
 	result := make([]byte, 0, 8)
 	for {
@@ -82,6 +106,16 @@ func readString(d *Decoder) ([]byte, error) {
 	}
 }
 
+func writeString(d *Encoder, str []byte) error {
+	for _, b := range str {
+		err := writeByte(d, b)
+		if err != nil {
+			return err
+		}
+	}
+	return writeByte(d, 0)
+}
+
 func readSlice(d *Decoder, length uint32) ([]byte, error) {
 	result := make([]byte, length)
 	n, err := d.r.Read(result)
@@ -93,4 +127,23 @@ func readSlice(d *Decoder, length uint32) ([]byte, error) {
 		return result[:n], fmt.Errorf("expected %d bytes, got %d", length, n)
 	}
 	return result, nil
+}
+
+func writeSlice(d *Encoder, buf []byte) error {
+	n, err := d.w.Write(buf)
+	if err != nil {
+		return err
+	}
+	if n != len(buf) {
+		return fmt.Errorf("expected %d bytes, got %d", len(buf), n)
+	}
+	return nil
+}
+
+func writeOpaque(d *Encoder, buf Opaque) error {
+	err := writeMbUint32(d, uint32(len(buf)))
+	if err != nil {
+		return err
+	}
+	return writeSlice(d, buf)
 }

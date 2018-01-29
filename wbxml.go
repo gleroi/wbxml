@@ -66,8 +66,9 @@ type Token interface{}
 
 // StartElement represent the start tag of an WBXML element.
 type StartElement struct {
-	Name string
-	Attr []Attr
+	Name    string
+	Attr    []Attr
+	Content bool
 }
 
 // Attr represents an attribute of WBXML element.
