@@ -7,6 +7,10 @@ import (
 	"reflect"
 )
 
+type Marshaler interface {
+	MarshalWBXML(e *Encoder, st StartElement) error
+}
+
 type Encoder struct {
 	w io.Writer
 
@@ -85,19 +89,30 @@ func (e *Encoder) EncodeElement(v interface{}, start StartElement) error {
 	if v == nil {
 		return nil
 	}
+
 	if val.Kind() == reflect.Interface && !val.IsNil() {
+		if marsh, ok := val.Interface().(Marshaler); ok {
+			return marsh.MarshalWBXML(e, start)
+		}
 		val = val.Elem()
 	}
 	if val.Kind() == reflect.Ptr && !val.IsNil() {
+		if marsh, ok := val.Interface().(Marshaler); ok {
+			return marsh.MarshalWBXML(e, start)
+		}
 		val = val.Elem()
 	}
 	if !val.IsValid() {
 		return nil
 	}
-	return e.unmarshalValue(val, start)
+	if marsh, ok := val.Interface().(Marshaler); ok {
+		return marsh.MarshalWBXML(e, start)
+	}
+
+	return e.marshalValue(val, start)
 }
 
-func (e *Encoder) unmarshalValue(val reflect.Value, start StartElement) error {
+func (e *Encoder) marshalValue(val reflect.Value, start StartElement) error {
 	kind := val.Kind()
 	typ := val.Type()
 
@@ -118,7 +133,7 @@ func (e *Encoder) unmarshalValue(val reflect.Value, start StartElement) error {
 		for i := 0; i < val.NumField() && start.Content; i++ {
 			fld := val.Field(i)
 			if fld.IsValid() {
-				err := e.unmarshalValue(fld, StartElement{Name: typ.Field(i).Name})
+				err := e.EncodeElement(fld.Interface(), StartElement{Name: typ.Field(i).Name})
 				if err != nil {
 					return fmt.Errorf("%s.%s: %s", typ.Name(), typ.Field(i).Name, err)
 				}
@@ -138,7 +153,7 @@ func (e *Encoder) unmarshalValue(val reflect.Value, start StartElement) error {
 					return err
 				}
 			} else {
-
+				return fmt.Errorf("SLICE!")
 			}
 		}
 		return e.EncodeToken(EndElement{Name: start.Name})
