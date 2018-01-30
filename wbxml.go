@@ -57,6 +57,7 @@ package wbxml
 import (
 	"fmt"
 	"io"
+	"unicode/utf8"
 )
 
 // CodeSpace represents the mapping of a tag or attribute to its code, organized in pages
@@ -116,6 +117,14 @@ type Opaque []byte
 // Entity represents a WBXML entity, used only when alone, else it is concatenated to the previous
 // CharData.
 type Entity uint32
+
+// UTF8 converts an entity to a valid utf sequence.
+func (ent Entity) UTF8() []byte {
+	var buf [4]byte
+	rlen := utf8.RuneLen(rune(ent))
+	utf8.EncodeRune(buf[:rlen], rune(ent))
+	return buf[:rlen]
+}
 
 // Header represents the header of a wbxml document.
 type Header struct {

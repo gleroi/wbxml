@@ -5,7 +5,6 @@ import (
 	"io"
 	"reflect"
 	"strconv"
-	"unicode/utf8"
 )
 
 // Unmarshaler is an interface implemented by a type that wish to control how it is
@@ -500,14 +499,11 @@ func (d *Decoder) charData(cdata *CharData, b byte) {
 	case gloEntity:
 		entcode, err := mbUint32(d)
 		d.panicErr(err)
+		entity := Entity(entcode)
 		if len(*cdata) > 0 {
-			var buf [4]byte
-			rlen := utf8.RuneLen(rune(entcode))
-			utf8.EncodeRune(buf[:rlen], rune(entcode))
-			d.panicErr(err)
-			*cdata = append(*cdata, buf[:rlen]...)
+			*cdata = append(*cdata, entity.UTF8()...)
 		} else {
-			d.tokChan <- Entity(entcode)
+			d.tokChan <- entity
 		}
 	default:
 		d.panicErr(fmt.Errorf("Unknown char data tag %d", b))

@@ -123,13 +123,19 @@ func (e *Encoder) EncodeElement(v interface{}, start StartElement) error {
 		return nil
 	}
 
-	if val.Kind() == reflect.Interface && !val.IsNil() {
+	if val.Kind() == reflect.Interface {
+		if val.IsNil() {
+			return nil
+		}
 		if marsh, ok := val.Interface().(Marshaler); ok {
 			return marsh.MarshalWBXML(e, start)
 		}
 		val = val.Elem()
 	}
-	if val.Kind() == reflect.Ptr && !val.IsNil() {
+	if val.Kind() == reflect.Ptr {
+		if val.IsNil() {
+			return nil
+		}
 		if marsh, ok := val.Interface().(Marshaler); ok {
 			return marsh.MarshalWBXML(e, start)
 		}
@@ -141,7 +147,6 @@ func (e *Encoder) EncodeElement(v interface{}, start StartElement) error {
 	if marsh, ok := val.Interface().(Marshaler); ok {
 		return marsh.MarshalWBXML(e, start)
 	}
-
 	return e.marshalValue(val, start)
 }
 
@@ -165,7 +170,7 @@ func (e *Encoder) marshalValue(val reflect.Value, start StartElement) error {
 		}
 		for i := 0; i < val.NumField() && start.Content; i++ {
 			fld := val.Field(i)
-			if fld.IsValid() {
+			if fld.IsValid() && fld.CanInterface() {
 				err := e.EncodeElement(fld.Interface(), StartElement{Name: typ.Field(i).Name})
 				if err != nil {
 					return fmt.Errorf("%s.%s: %s", typ.Name(), typ.Field(i).Name, err)
