@@ -1,8 +1,7 @@
 wbxml
 =====
 
-wbxml is a [WBXML](https://www.w3.org/TR/wbxml/) parser.
-package wbxml // import "github.com/gleroi/wbxml"
+package wbxml `// import "github.com/gleroi/wbxml"` 
 
 Package wbxml implements a simple WBXML parser, based on encoding/xml API.
 
