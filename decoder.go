@@ -44,11 +44,6 @@ func NewDecoder(r io.Reader, tags CodeSpace, attrs CodeSpace) *Decoder {
 	return d
 }
 
-// Offset returns the position in the WBXML stream.
-func (d *Decoder) Offset() int {
-	return d.offset
-}
-
 // GetString returns the string of the string table starting at byte i and ending a the first
 // meet NULL terminator. It returns nil and error if i bigger than the string table, or no NULL
 // terminator is found.
@@ -371,11 +366,12 @@ func (d *Decoder) element(b byte) {
 			d.attributes(&tok)
 		}
 		tok.Content = tag.Content()
+		tok.Offset = d.offset - 1
 		d.tokChan <- tok
 		if tag.Content() {
 			d.content()
 		}
-		d.tokChan <- EndElement{Name: tagName}
+		d.tokChan <- EndElement{Name: tagName, Offset: d.offset}
 	}
 }
 

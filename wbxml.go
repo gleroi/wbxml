@@ -89,6 +89,7 @@ type StartElement struct {
 	Name    string
 	Attr    []Attr
 	Content bool
+	Offset  int
 }
 
 // Attr represents an attribute of WBXML element.
@@ -99,7 +100,8 @@ type Attr struct {
 
 // EndElement represents the end tag of an WBXML element.
 type EndElement struct {
-	Name string
+	Name   string
+	Offset int
 }
 
 // ProcInst represents a processor instruction (PI) in a WBXML document.
