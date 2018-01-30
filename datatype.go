@@ -24,6 +24,7 @@ func writeByte(e *Encoder, b byte) error {
 	return err
 }
 
+// MbUint read a multibyte encoded integer, as specified by WBXML.
 func MbUint(r io.Reader, max int) (uint64, error) {
 	var result uint64
 

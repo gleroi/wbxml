@@ -8,7 +8,7 @@ import (
 	"os"
 )
 
-var syncMLTags CodeSpace = CodeSpace{
+var syncMLTags = CodeSpace{
 	0: CodePage{
 		0x05: "Add",
 		0x06: "Alert",

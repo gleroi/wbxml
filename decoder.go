@@ -8,10 +8,15 @@ import (
 	"unicode/utf8"
 )
 
+// Unmarshaler is an interface implemented by a type that wish to control how it is
+// decoded from WBXML.
+//
+// Mostly used when a type is not supported by default by Decoder.DecodeElement.
 type Unmarshaler interface {
 	UnmarshalWBXML(d *Decoder, st *StartElement) error
 }
 
+// Decoder decodes a WBXML stream.
 type Decoder struct {
 	r io.Reader
 
@@ -26,6 +31,7 @@ type Decoder struct {
 	Header  Header
 }
 
+// NewDecoder instantiate a Decoder, with r as a stream of WBXML.
 func NewDecoder(r io.Reader, tags CodeSpace, attrs CodeSpace) *Decoder {
 	d := &Decoder{
 		r: r,
@@ -39,11 +45,29 @@ func NewDecoder(r io.Reader, tags CodeSpace, attrs CodeSpace) *Decoder {
 	return d
 }
 
+// Offset returns the position in the WBXML stream.
 func (d *Decoder) Offset() int {
 	return d.offset
 }
 
-// Token returns the next token in the input stream, or nil and io.EOF at the end.
+// GetString returns the string of the string table starting at byte i and ending a the first
+// meet NULL terminator. It returns nil and error if i bigger than the string table, or no NULL
+// terminator is found.
+func (d *Decoder) GetString(i uint32) ([]byte, error) {
+	if i >= uint32(len(d.Header.StringTable)) {
+		return nil, fmt.Errorf("%d is not a valid string reference (max %d)", i, len(d.Header.StringTable))
+	}
+	for end, b := range d.Header.StringTable[i:] {
+		if b == 0 {
+			return d.Header.StringTable[i : i+uint32(end)], nil
+		}
+	}
+	return nil, fmt.Errorf("StringTable: no NULL terminator found")
+}
+
+// Token returns the next token in the WBXML stream, or an error.
+// At end it returns nil and io.EOF.
+// It is mostly used by types implementing Unmarshaler.
 func (d *Decoder) Token() (Token, error) {
 	tok := <-d.tokChan
 	if tok == nil {
@@ -52,12 +76,15 @@ func (d *Decoder) Token() (Token, error) {
 	return tok, nil
 }
 
+// Decode decodes a WBXML document to v.
 func (d *Decoder) Decode(v interface{}) error {
 	return d.DecodeElement(v, nil)
 }
 
+// DecodeElement decodes the root element and its child to v.
+// It is mostly used by types implementing Unmarshaler that wish to
+// delegate parts of the decoding.
 func (d *Decoder) DecodeElement(v interface{}, start *StartElement) error {
-
 	if start == nil {
 		tok, err := d.Token()
 		if err != nil {
@@ -227,18 +254,6 @@ func (d *Decoder) expectedEnd(start *StartElement) error {
 		return fmt.Errorf("expected end element %s, got %+v", start.Name, tok)
 	}
 	return nil
-}
-
-func (d *Decoder) GetString(i uint32) ([]byte, error) {
-	if i >= uint32(len(d.Header.StringTable)) {
-		return nil, fmt.Errorf("%d is not a valid string reference (max %d)", i, len(d.Header.StringTable))
-	}
-	for end, b := range d.Header.StringTable[i:] {
-		if b == 0 {
-			return d.Header.StringTable[i : i+uint32(end)], nil
-		}
-	}
-	return nil, fmt.Errorf("StringTable: no NULL terminator found")
 }
 
 func (d *Decoder) tagName(code byte) string {
@@ -431,7 +446,7 @@ func (d *Decoder) content() {
 	// content() accumulate adjacent CharData in a unique instance until END or ELEMENT is
 	// encountered
 
-	var cdata CharData = nil
+	var cdata CharData
 	for {
 		b, err := readByte(d)
 		d.panicErr(err)

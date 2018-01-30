@@ -7,10 +7,15 @@ import (
 	"reflect"
 )
 
+// Marshaler is an interface implemented by a type that wish to control how it is encoded
+// to WBXML.
+//
+// Mostly used when a type is not supported by default by Encoder.EncodeElement.
 type Marshaler interface {
 	MarshalWBXML(e *Encoder, st StartElement) error
 }
 
+// Encoder encodes values to WBXML.
 type Encoder struct {
 	w io.Writer
 
@@ -26,6 +31,7 @@ type Encoder struct {
 	Header    Header
 }
 
+// NewEncoder instantiates an Encoder, writting WBXML to w.
 func NewEncoder(w io.Writer, tags CodeSpace, attrs CodeSpace) *Encoder {
 	e := &Encoder{
 		w:         w,
@@ -38,6 +44,8 @@ func NewEncoder(w io.Writer, tags CodeSpace, attrs CodeSpace) *Encoder {
 	return e
 }
 
+// GetIndex returns the byte position of str in the string table. It returns 0 and false
+// if the string is not found.
 func (e *Encoder) GetIndex(str []byte) (uint32, bool) {
 	start := 0
 	for end, b := range e.Header.StringTable {
@@ -51,6 +59,8 @@ func (e *Encoder) GetIndex(str []byte) (uint32, bool) {
 	return 0, false
 }
 
+// EncodeHeader encodes the WBXML header.
+// It sets the string table used by Encode and EncodeElement.
 func (e *Encoder) EncodeHeader(h Header) error {
 	e.Header = h
 
@@ -83,6 +93,29 @@ func (e *Encoder) EncodeHeader(h Header) error {
 	return writeSlice(e, h.StringTable)
 }
 
+// EncodeToken encode a WBXML token, and may return an error if the write fails.
+// It is mostly used by types implementing Marshaler.
+func (e *Encoder) EncodeToken(tok Token) error {
+	switch tok := tok.(type) {
+	case StartElement:
+		return e.encodeTag(tok)
+	case EndElement:
+		return e.encodeEnd(tok)
+	case ProcInst:
+		return fmt.Errorf("not implemented")
+	case CharData:
+		return e.writeString(tok)
+	case Opaque:
+		return writeOpaque(e, tok)
+	case Entity:
+		return e.writeEntity(tok)
+	default:
+		return fmt.Errorf("unknown token %T", tok)
+	}
+}
+
+// EncodeElement encodes the value v to a WBXML element. start is used to define
+// the name of the WBXML element.
 func (e *Encoder) EncodeElement(v interface{}, start StartElement) error {
 	val := reflect.ValueOf(v)
 
@@ -153,7 +186,7 @@ func (e *Encoder) marshalValue(val reflect.Value, start StartElement) error {
 					return err
 				}
 			} else {
-				return fmt.Errorf("SLICE!")
+				return fmt.Errorf("slice other than []byte are not supported")
 			}
 		}
 		return e.EncodeToken(EndElement{Name: start.Name})
@@ -208,25 +241,6 @@ func (e *Encoder) marshalValue(val reflect.Value, start StartElement) error {
 		return fmt.Errorf("%s (%s) not supported", val.Kind(), typ.Name())
 	}
 	return nil
-}
-
-func (e *Encoder) EncodeToken(tok Token) error {
-	switch tok := tok.(type) {
-	case StartElement:
-		return e.encodeTag(tok)
-	case EndElement:
-		return e.encodeEnd(tok)
-	case ProcInst:
-		return fmt.Errorf("not implemented")
-	case CharData:
-		return e.writeString(tok)
-	case Opaque:
-		return writeOpaque(e, tok)
-	case Entity:
-		return e.writeEntity(tok)
-	default:
-		return fmt.Errorf("unknown token %T", tok)
-	}
 }
 
 // tag return the tag code, page or and error.
