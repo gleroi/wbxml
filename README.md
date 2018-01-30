@@ -60,6 +60,9 @@ WBXML grammar is:
     length		= mb_u_int32			// integer length.
     zero		= u_int8			// containing the value zero (0).
 
+
+## API
+
 ```golang
 func MbUint(r io.Reader, max int) (uint64, error)
 func XML(w io.Writer, wb *Decoder, indent string) (finalError error)
